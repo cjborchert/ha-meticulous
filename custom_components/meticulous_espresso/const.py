@@ -19,6 +19,10 @@ from homeassistant.const import (
 DOMAIN = "meticulous_espresso"
 MANUFACTURER = "Meticulous"
 DEFAULT_PORT = 8080
+# Newer firmware binds the backend to localhost and proxies the API on port 80
+FALLBACK_PORT = 80
+PORT_CANDIDATES: tuple[int, ...] = (DEFAULT_PORT, FALLBACK_PORT)
+PORT_PROBE_TIMEOUT = 5  # seconds
 
 # Reconnection
 RECONNECT_INITIAL_DELAY = 5

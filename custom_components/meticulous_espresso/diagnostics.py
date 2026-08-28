@@ -24,6 +24,7 @@ async def async_get_config_entry_diagnostics(
         },
         "connection": {
             "connected": push.connected if push else False,
+            "port": push.port if push else None,
             "serial": push.serial if push else None,
             "model": push.model if push else None,
             "sw_version": push.sw_version if push else None,

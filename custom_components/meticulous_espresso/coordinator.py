@@ -19,9 +19,11 @@ from meticulous import Api
 from meticulous.api import ApiOptions
 from meticulous.api_types import ActionType, APIError, BrightnessRequest, PartialSettings
 
+from .connection import build_base_url, discover_api
 from .const import (
     DOMAIN,
     EXACT_MATCH_SENSORS,
+    PORT_CANDIDATES,
     RECONNECT_BACKOFF_FACTOR,
     RECONNECT_INITIAL_DELAY,
     RECONNECT_MAX_DELAY,
@@ -63,7 +65,13 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     marshalled from the executor thread to the HA event loop.
     """
 
-    def __init__(self, hass: HomeAssistant, host: str, serial: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        serial: str,
+        port: int | None = None,
+    ) -> None:
         """Initialize the push coordinator."""
         super().__init__(
             hass,
@@ -72,6 +80,8 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # No update_interval — purely push-based
         )
         self.host = host
+        # None until auto-detected (8080 on older firmware, 80 on newer)
+        self.port = port
         self.serial = serial
         self.model: str = "Espresso"
         self.sw_version: str | None = None
@@ -125,6 +135,8 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Profile list for select entity
         self.available_profiles: dict[str, str] = {}
+        # Profile ID -> image path reported by the machine (may be absent)
+        self.profile_images: dict[str, str] = {}
 
     @property
     def connected(self) -> bool:
@@ -168,9 +180,16 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Connect to REST API and fetch device info (runs in executor)."""
         try:
 
-            def _setup_api() -> tuple[Api, Any]:
-                """Create API client and fetch device info (blocking)."""
-                base_url = f"http://{self.host}:8080/"
+            def _setup_api() -> tuple[Api, Any, int]:
+                """Detect the API port, create the client, fetch device info."""
+                found = discover_api(self.host, self.port)
+                if found is None:
+                    raise ConnectionError(
+                        f"No Meticulous API found on {self.host} "
+                        f"(tried ports {', '.join(str(p) for p in PORT_CANDIDATES)})"
+                    )
+                port, _ = found
+                base_url = build_base_url(self.host, port)
                 options = ApiOptions(
                     onStatus=self._handle_status_event,
                     onTemperatureSensors=self._handle_temperature_event,
@@ -185,9 +204,15 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 api = Api(base_url=base_url, options=options)
                 device_info = api.get_device_info()
-                return api, device_info
+                return api, device_info, port
 
-            self._api, device_info = await self.hass.async_add_executor_job(_setup_api)
+            self._api, device_info, port = await self.hass.async_add_executor_job(
+                _setup_api
+            )
+
+            if port != self.port:
+                _LOGGER.info("Using Meticulous API at %s:%s", self.host, port)
+            self.port = port
 
             if isinstance(device_info, APIError):
                 _LOGGER.error("Failed to connect: %s", device_info.error)
@@ -266,6 +291,15 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return
                 except Exception as err:
                     _LOGGER.warning("Reconnection failed (attempt %d): %s", attempt, err)
+
+                    # The API port may have moved (e.g. firmware update);
+                    # rebuild the client against a freshly detected port.
+                    previous_port = self.port
+                    if await self._connect_api() and self.port != previous_port:
+                        _LOGGER.info(
+                            "Meticulous API moved to port %s, reconnecting", self.port
+                        )
+                        continue
 
         self._reconnect_task = self.hass.async_create_task(_reconnect())
 
@@ -526,11 +560,15 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             profiles = await self.hass.async_add_executor_job(api.list_profiles)
             if profiles and not isinstance(profiles, APIError):
                 self.available_profiles = {}
+                self.profile_images = {}
                 for p in profiles:
                     pid = getattr(p, "id", None) or getattr(p, "name", "")
                     name = getattr(p, "name", "Unknown")
                     if pid:
                         self.available_profiles[pid] = name
+                        image = getattr(getattr(p, "display", None), "image", None)
+                        if image:
+                            self.profile_images[pid] = image
 
             # Also update profile info
             last_profile = await self.hass.async_add_executor_job(api.get_last_profile)

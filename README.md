@@ -137,7 +137,7 @@ hours_to_show: 4
 This integration connects directly to the Meticulous machine via its local API:
 
 ```
-Meticulous Machine (port 8080)
+Meticulous Machine (port 8080, or 80 on newer firmware)
     ├── REST API → Device info, profiles, statistics, settings
     └── Socket.IO → Real-time telemetry (temperatures, pressure, flow, weight, state)
          │

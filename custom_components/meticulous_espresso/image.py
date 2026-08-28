@@ -10,7 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .connection import build_base_url
+from .const import DEFAULT_PORT, DOMAIN
 from .coordinator import MeticulousPushCoordinator
 from .entity import MeticulousEntity
 
@@ -47,9 +48,18 @@ class MeticulousProfileImage(MeticulousEntity, ImageEntity):
 
         # Find profile ID from name
         for pid, name in self.coordinator.available_profiles.items():
-            if name == profile:
-                host = self.coordinator.host
-                return f"http://{host}:8080/api/v1/profile/{pid}/image"
+            if name != profile:
+                continue
+
+            base_url = build_base_url(
+                self.coordinator.host, self.coordinator.port or DEFAULT_PORT
+            )
+            # Newer firmware reports the image path on the profile itself;
+            # fall back to the legacy per-profile endpoint.
+            path = self.coordinator.profile_images.get(pid)
+            if path:
+                return f"{base_url}/{path.lstrip('/')}"
+            return f"{base_url}/api/v1/profile/{pid}/image"
 
         return None
 

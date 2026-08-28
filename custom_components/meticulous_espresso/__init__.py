@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, Platform
+from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
@@ -26,16 +26,24 @@ PLATFORMS = [
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Meticulous Espresso from a config entry."""
     host = entry.data[CONF_HOST]
+    # Port may be absent for entries created before port auto-detection
+    port = entry.data.get(CONF_PORT)
 
     # Create push coordinator (real-time telemetry via Socket.IO)
     push_coordinator = MeticulousPushCoordinator(
-        hass, host, serial=entry.unique_id or "meticulous"
+        hass, host, serial=entry.unique_id or "meticulous", port=port
     )
 
-    # Connect to machine
+    # Connect to machine (auto-detects the API port)
     if not await push_coordinator.async_setup():
         _LOGGER.error("Failed to connect to Meticulous machine at %s", host)
         return False
+
+    # Persist the detected port so later setups skip probing
+    if push_coordinator.port != port:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_PORT: push_coordinator.port}
+        )
 
     # Create polling coordinator (profiles, statistics, settings)
     poll_coordinator = MeticulousPollingCoordinator(hass, push_coordinator)

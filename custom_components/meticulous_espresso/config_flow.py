@@ -8,12 +8,13 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_PORT
 try:
     from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 except ImportError:
     from homeassistant.components.zeroconf import ZeroconfServiceInfo
 
+from .connection import async_discover_api
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,29 +26,30 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def _validate_connection(hass, host: str) -> dict[str, str] | None:
-    """Validate we can connect to the machine. Returns device info or None."""
-    from meticulous import Api
-    from meticulous.api_types import APIError
+async def _validate_connection(
+    hass, host: str, preferred_port: int | None = None
+) -> dict[str, Any] | None:
+    """Validate we can connect to the machine. Returns device info or None.
 
+    The port is auto-detected: older firmware serves the API on 8080, newer
+    firmware proxies it on port 80.
+    """
     try:
-
-        def _probe() -> Any:
-            api = Api(base_url=f"http://{host}:8080/")
-            return api.get_device_info()
-
-        result = await hass.async_add_executor_job(_probe)
-
-        if isinstance(result, APIError):
-            return None
-
-        return {
-            "serial": getattr(result, "serial", "meticulous"),
-            "name": getattr(result, "name", "Meticulous Espresso"),
-            "model": getattr(result, "model", "Espresso"),
-        }
+        found = await async_discover_api(hass, host, preferred_port)
     except Exception:
         return None
+
+    if not found:
+        return None
+
+    port, result = found
+
+    return {
+        "serial": getattr(result, "serial", "meticulous"),
+        "name": getattr(result, "name", "Meticulous Espresso"),
+        "model": getattr(result, "model", "Espresso"),
+        "port": port,
+    }
 
 
 class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -58,6 +60,7 @@ class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize."""
         self._host: str | None = None
+        self._port: int | None = None
         self._serial: str | None = None
         self._name: str = "Meticulous Espresso"
 
@@ -66,21 +69,25 @@ class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle Zeroconf discovery of _meticulous._tcp.local."""
         host = str(discovery_info.host)
+        advertised_port = getattr(discovery_info, "port", None)
         _LOGGER.info("Discovered Meticulous machine at %s via Zeroconf", host)
 
-        # Validate and get device info
-        info = await _validate_connection(self.hass, host)
+        # Validate and get device info (port auto-detected, advertised port first)
+        info = await _validate_connection(self.hass, host, advertised_port)
         if not info:
             return self.async_abort(reason="cannot_connect")
 
         serial = info["serial"]
         self._host = host
+        self._port = info["port"]
         self._serial = serial
         self._name = info["name"]
 
         # Set unique ID and update host if already configured (handles DHCP changes)
         await self.async_set_unique_id(serial)
-        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+        self._abort_if_unique_id_configured(
+            updates={CONF_HOST: host, CONF_PORT: info["port"]}
+        )
 
         # Show confirmation to user
         self.context["title_placeholders"] = {"name": self._name}
@@ -93,7 +100,7 @@ class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_create_entry(
                 title=self._name,
-                data={CONF_HOST: self._host},
+                data={CONF_HOST: self._host, CONF_PORT: self._port},
             )
 
         return self.async_show_form(
@@ -118,7 +125,7 @@ class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 return self.async_create_entry(
                     title=info["name"],
-                    data={CONF_HOST: host},
+                    data={CONF_HOST: host, CONF_PORT: info["port"]},
                 )
             else:
                 errors["base"] = "cannot_connect"
@@ -141,7 +148,7 @@ class MeticulousConfigFlow(ConfigFlow, domain=DOMAIN):
             if info:
                 return self.async_update_reload_and_abort(
                     self._get_reconfigure_entry(),
-                    data_updates={CONF_HOST: host},
+                    data_updates={CONF_HOST: host, CONF_PORT: info["port"]},
                 )
             else:
                 errors["base"] = "cannot_connect"
