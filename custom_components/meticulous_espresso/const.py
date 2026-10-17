@@ -58,7 +58,29 @@ SENSOR_DELTAS: dict[str, float] = {
     "target_pressure": 0.2,
     "target_flow": 0.1,
     "voltage": 1.0,
+    # Only changes while the piston moves; ~1 unit filter keeps a full stroke to ~75 updates
+    "piston_position": 1.0,
 }
+
+# Piston motor effort tracking.
+# The Socket.IO "sensors" stream already carries motor position/speed/power/current.
+# During three repeatable full-stroke moves the samples are kept in memory and
+# summarised once when the move ends, so only one update per sensor per move is
+# published. Rising effort over time can indicate seal friction or scale build-up.
+#   raise   = "Home" started from Idle (manual raise)
+#   retract = "Retracting" started from "Click to Start" (pre-shot retract)
+#   lower   = "Purge" started from Idle (manual lower)
+PISTON_MOVES: tuple[str, ...] = ("raise", "retract", "lower")
+PISTON_SUMMARY_FIELDS: tuple[str, ...] = (
+    "avg_power",
+    "peak_power",
+    "avg_current",
+    "duration",
+    "travel",
+    "motor_temp",
+)
+PISTON_MOVING_SPEED = 0.5  # |m_spd| above this counts as moving
+PISTON_MIN_SAMPLES = 5  # ignore moves with fewer moving samples than this
 
 # Sensors that use exact-match filtering (publish on any change)
 EXACT_MATCH_SENSORS: set[str] = {
@@ -114,7 +136,7 @@ class MeticulousButtonDescription:
     entity_category: EntityCategory | None = None
 
 
-# ─── Sensor definitions ────────────────────────────────────────────────────────
+# â”€â”€â”€ Sensor definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
     # Temperature sensors
@@ -288,6 +310,201 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=0,
+    ),
+    # â”€â”€â”€ Piston position and motor effort (diagnostic) â”€â”€â”€
+    MeticulousSensorDescription(
+        key="piston_position",
+        name="Piston Position",
+        icon="mdi:arrow-up-down",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="raise_avg_power",
+        name="Piston Raise Avg Power",
+        icon="mdi:engine",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="raise_peak_power",
+        name="Piston Raise Peak Power",
+        icon="mdi:engine-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="raise_avg_current",
+        name="Piston Raise Avg Current",
+        icon="mdi:current-dc",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=3,
+    ),
+    MeticulousSensorDescription(
+        key="raise_duration",
+        name="Piston Raise Duration",
+        icon="mdi:timer-outline",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=2,
+    ),
+    MeticulousSensorDescription(
+        key="raise_travel",
+        name="Piston Raise Travel",
+        icon="mdi:arrow-expand-vertical",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="raise_motor_temp",
+        name="Piston Raise Motor Temp",
+        icon="mdi:thermometer",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="Â°C",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="retract_avg_power",
+        name="Pre-shot Retract Avg Power",
+        icon="mdi:engine",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="retract_peak_power",
+        name="Pre-shot Retract Peak Power",
+        icon="mdi:engine-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="retract_avg_current",
+        name="Pre-shot Retract Avg Current",
+        icon="mdi:current-dc",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=3,
+    ),
+    MeticulousSensorDescription(
+        key="retract_duration",
+        name="Pre-shot Retract Duration",
+        icon="mdi:timer-outline",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=2,
+    ),
+    MeticulousSensorDescription(
+        key="retract_travel",
+        name="Pre-shot Retract Travel",
+        icon="mdi:arrow-expand-vertical",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="retract_motor_temp",
+        name="Pre-shot Retract Motor Temp",
+        icon="mdi:thermometer",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="Â°C",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="lower_avg_power",
+        name="Piston Lower Avg Power",
+        icon="mdi:engine",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="lower_peak_power",
+        name="Piston Lower Peak Power",
+        icon="mdi:engine-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="lower_avg_current",
+        name="Piston Lower Avg Current",
+        icon="mdi:current-dc",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=3,
+    ),
+    MeticulousSensorDescription(
+        key="lower_duration",
+        name="Piston Lower Duration",
+        icon="mdi:timer-outline",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="s",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=2,
+    ),
+    MeticulousSensorDescription(
+        key="lower_travel",
+        name="Piston Lower Travel",
+        icon="mdi:arrow-expand-vertical",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="lower_motor_temp",
+        name="Piston Lower Motor Temp",
+        icon="mdi:thermometer",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="Â°C",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
+    ),
+    MeticulousSensorDescription(
+        key="raise_boiler_temp",
+        name="Piston Raise Boiler Temp",
+        icon="mdi:thermometer",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="Â°C",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+        suggested_display_precision=1,
     ),
 ]
 
