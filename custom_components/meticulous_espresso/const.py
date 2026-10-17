@@ -136,7 +136,7 @@ class MeticulousButtonDescription:
     entity_category: EntityCategory | None = None
 
 
-# â”€â”€â”€ Sensor definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Sensor definitions ────────────────────────────────────────────────────────
 
 SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
     # Temperature sensors
@@ -311,7 +311,7 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         enabled_default=False,
         suggested_display_precision=0,
     ),
-    # â”€â”€â”€ Piston position and motor effort (diagnostic) â”€â”€â”€
+    # ─── Piston position and motor effort (diagnostic) ───
     MeticulousSensorDescription(
         key="piston_position",
         name="Piston Position",
@@ -374,7 +374,7 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         icon="mdi:thermometer",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="Â°C",
+        native_unit_of_measurement="°C",
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=1,
@@ -432,7 +432,7 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         icon="mdi:thermometer",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="Â°C",
+        native_unit_of_measurement="°C",
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=1,
@@ -490,7 +490,7 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         icon="mdi:thermometer",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="Â°C",
+        native_unit_of_measurement="°C",
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=1,
@@ -501,7 +501,7 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         icon="mdi:thermometer",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="Â°C",
+        native_unit_of_measurement="°C",
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=1,
