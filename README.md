@@ -41,6 +41,20 @@ Native Home Assistant integration for the [Meticulous Espresso Machine](https://
 | Software Version | Machine software | — |
 | Voltage | Supply voltage (V) | voltage |
 
+### Piston Diagnostics
+Diagnostic sensors for the piston motor, useful for spotting a slow rise in effort over time (seal friction, scale) and for maintenance reminders. They reuse the existing Socket.IO sensor stream; no extra polling or connections are added.
+
+| Entity | Description | Default |
+|--------|-------------|---------|
+| Piston Position | Live piston position (0 = top, ~76 = bottom). Changes only while the piston moves; delta-filtered like pressure/flow | disabled |
+| Piston Raise Avg Power / Peak Power | Motor drive level during a manual raise (Home from Idle) | enabled |
+| Piston Raise Avg Current / Duration | Motor current and move time during a manual raise | enabled |
+| Pre-shot Retract Avg Power / Peak Power / Avg Current / Duration | Same, for the retract before each shot | enabled |
+| Piston Lower Avg Power / Peak Power / Avg Current / Duration | Same, for a manual lower (Purge from Idle) | enabled |
+| … Travel / Motor Temp, Piston Raise Boiler Temp | Context for comparing moves | disabled |
+
+The effort sensors update **once per move** (when the move finishes), so they add very little to the recorder.
+
 ### Binary Sensors
 | Entity | Description | Device Class |
 |--------|-------------|-------------|
