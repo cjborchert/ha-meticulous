@@ -381,7 +381,11 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     new_state = _normalize_state_name(detailed_state_raw)
                 if new_state != self._current_state:
                     _LOGGER.info("State transition: %s → %s", self._current_state, new_state)
-                    self._state_before = self._current_state
+                    self._state_before = (
+                        _normalize_state_name(self._previous_state_name)
+                        if self._previous_state_name is not None
+                        else None
+                    )
                     self._current_state = new_state
                 self._previous_state_name = detailed_state_raw
             elif not detailed_state_raw and self._previous_state_name is not None:
