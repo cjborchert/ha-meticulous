@@ -50,6 +50,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Do initial refresh of slow data
     await poll_coordinator.async_config_entry_first_refresh()
+    # A DataUpdateCoordinator only keeps polling while something listens to it, and no entity
+    # subscribes to this one, so without this it would never refresh after the first run.
+    entry.async_on_unload(poll_coordinator.async_add_listener(lambda: None))
 
     # Store coordinators in runtime data
     hass.data.setdefault(DOMAIN, {})
