@@ -20,6 +20,7 @@ from meticulous import Api
 from meticulous.api import ApiOptions
 from meticulous.api_types import ActionType, APIError, BrightnessRequest, PartialSettings
 
+from .after_shot import PRE_SHOT_STATES, summarise
 from .connection import build_base_url, discover_api
 from .const import (
     DOMAIN,
@@ -111,6 +112,8 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Piston motor effort tracking (see PISTON_MOVES in const.py)
         self._state_before: str | None = None
         self._motor_episode: dict[str, Any] | None = None
+        self._after_shot: list[tuple[float, float, float, float, float]] | None = None
+        self._pressure: float = 0.0
         self._last_preheat_time: float = 0.0
 
         # Current data snapshot
@@ -141,6 +144,8 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "brightness": None,
             "piston_position": None,
             "raise_boiler_temp": None,
+            "after_shot_current": None,
+            "after_shot_speed": None,
             **{
                 f"{move}_{field}": None
                 for move in PISTON_MOVES
@@ -405,6 +410,11 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 flow = getattr(sensors, "f", 0)
                 weight = getattr(sensors, "w", 0)
 
+            try:
+                self._pressure = float(pressure or 0)
+            except (TypeError, ValueError):
+                pass
+
             brewing = coarse_state != "idle" and is_extracting
 
             # Shot timer with stale value handling
@@ -504,6 +514,7 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _track_motor(self, s: Any) -> None:
         get = s.get if isinstance(s, dict) else (lambda k, d=None: getattr(s, k, d))
+        self._track_after_shot(get)
         kind = self._motor_kind()
         ep = self._motor_episode
         if ep is not None and ep["kind"] != kind:
@@ -528,6 +539,40 @@ class MeticulousPushCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return
         ep["samples"].append(sample)
+
+    # ─── After-shot retract (one friction value per shot, see after_shot.py) ──
+
+    def _track_after_shot(self, get: Any) -> None:
+        after = (
+            self._current_state == "Retracting"
+            and self._state_before not in PRE_SHOT_STATES
+        )
+        if not after:
+            if self._after_shot is not None:
+                samples, self._after_shot = self._after_shot, None
+                result = summarise(samples)
+                if result is not None:
+                    current, speed = result
+                    _LOGGER.info("After-shot retract: %.3f A at %.2f mm/s", current, speed)
+                    for key, value in (("after_shot_current", current), ("after_shot_speed", speed)):
+                        self.data[key] = value
+                        self._last_values[key] = value
+                    self.hass.loop.call_soon_threadsafe(self.async_set_updated_data, dict(self.data))
+            return
+        if self._after_shot is None:
+            self._after_shot = []
+        try:
+            self._after_shot.append(
+                (
+                    float(get("m_pos", 0) or 0),
+                    float(get("m_spd", 0) or 0),
+                    float(get("m_pwr", 0) or 0),
+                    float(get("m_cur", 0) or 0),
+                    self._pressure,
+                )
+            )
+        except (TypeError, ValueError):
+            return
 
     def _finish_motor_episode(self, ep: dict[str, Any]) -> None:
         samples = ep["samples"]

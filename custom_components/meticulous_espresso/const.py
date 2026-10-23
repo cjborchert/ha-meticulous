@@ -14,6 +14,8 @@ from homeassistant.const import (
     UnitOfTime,
     UnitOfMass,
     UnitOfElectricPotential,
+    UnitOfElectricCurrent,
+    UnitOfSpeed,
 )
 
 DOMAIN = "meticulous_espresso"
@@ -505,6 +507,30 @@ SENSOR_DESCRIPTIONS: list[MeticulousSensorDescription] = [
         entity_category=EntityCategory.DIAGNOSTIC,
         enabled_default=False,
         suggested_display_precision=1,
+    ),
+    # After-shot retract: one value per shot (see after_shot.py). Past shots are
+    # imported from the machine's shot history the first time these exist.
+    MeticulousSensorDescription(
+        key="after_shot_current",
+        name="Piston After-Shot Current",
+        icon="mdi:current-dc",
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=3,
+    ),
+    MeticulousSensorDescription(
+        key="after_shot_speed",
+        name="Piston After-Shot Speed",
+        icon="mdi:speedometer",
+        device_class=SensorDeviceClass.SPEED,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfSpeed.MILLIMETERS_PER_SECOND,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=True,
+        suggested_display_precision=2,
     ),
 ]
 
